@@ -1,0 +1,168 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>CareStory AI Prototype</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar">
+        <div>
+          <p class="eyebrow">CareStory AI</p>
+          <h1>Clinical stories for better policy.</h1>
+        </div>
+
+        <nav class="nav-tabs" aria-label="Main views">
+          <button class="nav-tab is-active" type="button" data-view-target="doctor">
+            Doctor
+          </button>
+          <button class="nav-tab" type="button" data-view-target="admin">
+            Administrator
+          </button>
+        </nav>
+
+        <p class="sidebar-note">
+          Prototype only. Do not use with real patient data until security,
+          consent, and compliance reviews are complete.
+        </p>
+      </aside>
+
+      <main class="workspace">
+        <section class="view is-active" id="doctor-view" aria-labelledby="doctor-title">
+          <header class="view-header">
+            <div>
+              <p class="eyebrow">Doctor interface</p>
+              <h2 id="doctor-title">Record a patient story</h2>
+            </div>
+            <span class="status-pill" id="recording-status">Ready</span>
+          </header>
+
+          <form class="story-form" id="story-form">
+            <div class="field-grid">
+              <label>
+                Doctor name
+                <input id="doctor-name" name="doctorName" autocomplete="name" required />
+              </label>
+              <label>
+                Specialty
+                <input id="specialty" name="specialty" placeholder="Primary care" />
+              </label>
+              <label>
+                Encounter date
+                <input id="encounter-date" name="encounterDate" type="date" />
+              </label>
+              <label>
+                Consent / internal reference
+                <input id="reference-code" name="referenceCode" placeholder="Optional" />
+              </label>
+            </div>
+
+            <div class="record-panel">
+              <div>
+                <p class="section-label">Audio capture</p>
+                <p class="muted">
+                  Press record, tell the story, then stop. The server will transcribe
+                  the audio and save the result in Supabase.
+                </p>
+              </div>
+              <div class="record-actions">
+                <button class="primary" id="record-btn" type="button">Record</button>
+                <button id="stop-btn" type="button" disabled>Stop</button>
+              </div>
+            </div>
+
+            <label>
+              Transcript
+              <textarea
+                id="transcript"
+                name="transcript"
+                rows="10"
+                placeholder="Your transcript will appear here after recording. You can also type or paste text for testing."
+                required
+              ></textarea>
+            </label>
+
+            <div class="form-footer">
+              <p class="muted" id="doctor-message">No story saved yet.</p>
+              <button class="primary" id="save-story-btn" type="submit">Save story</button>
+            </div>
+          </form>
+        </section>
+
+        <section class="view" id="admin-view" aria-labelledby="admin-title">
+          <header class="view-header">
+            <div>
+              <p class="eyebrow">Administrator interface</p>
+              <h2 id="admin-title">Review stories and draft policy</h2>
+            </div>
+            <button id="refresh-btn" type="button">Refresh</button>
+          </header>
+
+          <section class="admin-grid" id="admin-content">
+            <div class="story-list-wrap">
+              <div class="section-heading">
+                <div>
+                  <p class="section-label">Transcripts</p>
+                  <p class="muted" id="story-count">0 stories</p>
+                </div>
+                <button id="analyze-all-btn" type="button">Analyze missing</button>
+              </div>
+              <div class="story-list" id="story-list"></div>
+            </div>
+
+            <div class="detail-panel">
+              <div id="empty-state" class="empty-state">
+                Select a transcript to review its summary, category, and source text.
+              </div>
+
+              <article class="story-detail is-hidden" id="story-detail">
+                <div class="detail-topline">
+                  <div>
+                    <p class="section-label" id="selected-doctor">Story</p>
+                    <h3 id="selected-title">No story selected</h3>
+                  </div>
+                  <span class="category-tag" id="selected-category">Uncategorized</span>
+                </div>
+
+                <div class="button-row">
+                  <button id="summarize-btn" type="button">Summarize</button>
+                  <button id="categorize-btn" type="button">Categorize</button>
+                </div>
+
+                <section>
+                  <h4>Summary</h4>
+                  <p id="selected-summary" class="body-copy">No summary yet.</p>
+                </section>
+
+                <section>
+                  <h4>Transcript</h4>
+                  <p id="selected-transcript" class="body-copy transcript-copy"></p>
+                </section>
+              </article>
+
+              <form class="proposal-panel" id="proposal-form">
+                <label>
+                  Policy idea
+                  <textarea
+                    id="policy-idea"
+                    rows="5"
+                    placeholder="Example: Improve Medicare reimbursement for home-based follow-up after discharge."
+                    required
+                  ></textarea>
+                </label>
+                <button class="primary" type="submit">Draft proposal</button>
+                <div class="proposal-output" id="proposal-output">
+                  Your AI-generated policy proposal will appear here.
+                </div>
+              </form>
+            </div>
+          </section>
+        </section>
+      </main>
+    </div>
+
+    <script type="module" src="./src/main.js"></script>
+  </body>
+</html>
