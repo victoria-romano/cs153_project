@@ -7,11 +7,19 @@ create table if not exists public.stories (
   reference_code text,
   transcript text not null,
   summary text,
-  category text
+  category text,
+  -- Low-lift additions to support the StoryBridge UI:
+  title text,
+  status text not null default 'submitted' -- draft | submitted | reviewed | in_advocacy
 );
+
+-- If the table already exists, add the new columns in place:
+alter table public.stories add column if not exists title text;
+alter table public.stories add column if not exists status text not null default 'submitted';
 
 create index if not exists stories_created_at_idx on public.stories (created_at desc);
 create index if not exists stories_category_idx on public.stories (category);
+create index if not exists stories_status_idx on public.stories (status);
 
 alter table public.stories enable row level security;
 
