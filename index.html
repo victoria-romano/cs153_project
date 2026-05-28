@@ -3,42 +3,269 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>CareStory AI Prototype</title>
+    <title>StoryBridge — Stanford Office of Child Health Equity</title>
     <link rel="stylesheet" href="./styles.css" />
   </head>
   <body>
     <div class="app-shell">
+      <!-- ---------------- Sidebar ---------------- -->
       <aside class="sidebar">
-        <div>
-          <p class="eyebrow">CareStory AI</p>
-          <h1>Clinical stories for better policy.</h1>
+        <div class="brand">
+          <div class="brand-mark">◆</div>
+          <p class="brand-name">StoryBridge</p>
         </div>
 
-        <nav class="nav-tabs" aria-label="Main views">
-          <button class="nav-tab is-active" type="button" data-view-target="doctor">
-            Doctor
-          </button>
-          <button class="nav-tab" type="button" data-view-target="admin">
-            Administrator
-          </button>
-        </nav>
+        <button class="primary sidebar-cta" id="sidebar-record" type="button">
+          🎙 Record a Story
+        </button>
 
-        <p class="sidebar-note">
-          Prototype only. Do not use with real patient data until security,
-          consent, and compliance reviews are complete.
-        </p>
+        <div class="role-switch" role="tablist" aria-label="Switch view">
+          <button type="button" data-role="doctor" class="is-active">Clinician</button>
+          <button type="button" data-role="admin">Policy</button>
+        </div>
+
+        <nav class="nav" id="nav" aria-label="Main navigation"></nav>
+
+        <div class="sidebar-spacer"></div>
+
+        <div class="mission-card">
+          <div class="mission-title">❤ Our mission</div>
+          <p>Elevating patient and caregiver voices to shape better health policy for all.</p>
+        </div>
+
+        <div class="org-card">
+          <img src="./stanford-logo.jpg" alt="Stanford Medicine — Office of Child Health Equity, Department of Pediatrics" />
+          <span>Office of Child Health Equity · Department of Pediatrics</span>
+        </div>
       </aside>
 
-      <main class="workspace">
-        <section class="view is-active" id="doctor-view" aria-labelledby="doctor-title">
-          <header class="view-header">
-            <div>
-              <p class="eyebrow">Doctor interface</p>
-              <h2 id="doctor-title">Record a patient story</h2>
-            </div>
-            <span class="status-pill" id="recording-status">Ready</span>
-          </header>
+      <!-- ---------------- Main ---------------- -->
+      <div class="main">
+        <header class="topbar">
+          <div>
+            <p class="eyebrow" id="top-eyebrow">Dashboard</p>
+            <h2 id="greeting">Good morning</h2>
+            <p class="subtitle" id="subtitle">Thank you for raising your voice for your patients.</p>
+          </div>
+          <div class="topbar-actions">
+            <span class="demo-badge is-hidden" id="demo-badge" title="Supabase is not configured, so sample data is shown.">● Demo data</span>
+            <button class="primary" id="top-record" type="button">🎙 Record a Story</button>
+          </div>
+        </header>
 
+        <!-- ============ Clinician dashboard ============ -->
+        <main class="content" id="doctor-dash">
+          <section class="kpi-grid">
+            <div class="kpi">
+              <div class="kpi-top">
+                <span class="kpi-label">Stories submitted</span>
+                <span class="kpi-ico">📄</span>
+              </div>
+              <div class="kpi-value" id="doc-total">—</div>
+              <div class="kpi-sub" id="doc-total-sub">across the program</div>
+            </div>
+            <div class="kpi">
+              <div class="kpi-top">
+                <span class="kpi-label">Drafts</span>
+                <span class="kpi-ico">📝</span>
+              </div>
+              <div class="kpi-value" id="doc-drafts">—</div>
+              <div class="kpi-sub">in progress</div>
+            </div>
+            <div class="kpi">
+              <div class="kpi-top">
+                <span class="kpi-label">Submitted this week</span>
+                <span class="kpi-ico">📆</span>
+              </div>
+              <div class="kpi-value" id="doc-week">—</div>
+              <div class="kpi-sub">last 7 days</div>
+            </div>
+            <div class="kpi">
+              <div class="kpi-top">
+                <span class="kpi-label">Used in advocacy</span>
+                <span class="kpi-ico">👥</span>
+              </div>
+              <div class="kpi-value" id="doc-advocacy">—</div>
+              <div class="kpi-sub" id="doc-advocacy-sub">of submissions</div>
+            </div>
+          </section>
+
+          <div class="dash-cols">
+            <div class="stack">
+              <section class="panel">
+                <div class="panel-head"><h3>Start sharing in 3 simple steps</h3></div>
+                <div class="panel-body">
+                  <div class="steps">
+                    <div class="step">
+                      <span class="step-num">1</span>
+                      <h4>Capture</h4>
+                      <p>Record or type the experience in your own words.</p>
+                    </div>
+                    <div class="step">
+                      <span class="step-num">2</span>
+                      <h4>Review</h4>
+                      <p>Check for key details and keep it clear.</p>
+                    </div>
+                    <div class="step">
+                      <span class="step-num">3</span>
+                      <h4>Submit</h4>
+                      <p>We review and may use it to drive real policy change.</p>
+                    </div>
+                  </div>
+                  <div class="record-cta-row">
+                    <button class="primary" id="steps-record" type="button">🎙 Record a Story</button>
+                    <a href="#" id="write-instead">Or write your story</a>
+                  </div>
+                </div>
+              </section>
+
+              <section class="panel">
+                <div class="panel-head">
+                  <h3>Your recent stories</h3>
+                  <a href="#" class="link-sm">View all</a>
+                </div>
+                <div class="story-list" id="doctor-stories"></div>
+              </section>
+            </div>
+
+            <div class="stack">
+              <section class="panel">
+                <div class="panel-head">
+                  <h3>What to share</h3>
+                  <a href="#" class="link-sm">View prompts</a>
+                </div>
+                <div class="prompt-list" id="prompt-list"></div>
+              </section>
+
+              <section class="panel">
+                <div class="panel-head"><h3>You're making an impact</h3></div>
+                <div class="panel-body">
+                  <div class="impact">
+                    <div class="ring" id="impact-ring"><div id="impact-pct">0%</div></div>
+                    <div>
+                      <p style="margin: 0; font-weight: 700;">Great work.</p>
+                      <p class="muted" id="impact-copy" style="margin: 4px 0 0;">
+                        You're helping shape a more equitable health system.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </section>
+            </div>
+          </div>
+        </main>
+
+        <!-- ============ Policy / admin dashboard ============ -->
+        <main class="content is-hidden" id="admin-dash">
+          <section class="kpi-grid">
+            <div class="kpi">
+              <div class="kpi-top">
+                <span class="kpi-label">Stories submitted this week</span>
+                <span class="kpi-ico">📄</span>
+              </div>
+              <div class="kpi-value" id="adm-week">—</div>
+              <div class="kpi-sub" id="adm-week-sub">last 7 days</div>
+            </div>
+            <div class="kpi">
+              <div class="kpi-top">
+                <span class="kpi-label">Stories reviewed</span>
+                <span class="kpi-ico">✅</span>
+              </div>
+              <div class="kpi-value" id="adm-reviewed">—</div>
+              <div class="kpi-sub">reviewed or in advocacy</div>
+            </div>
+            <div class="kpi">
+              <div class="kpi-top">
+                <span class="kpi-label">Top barrier this week</span>
+                <span class="kpi-ico">⚠️</span>
+              </div>
+              <div class="kpi-value" id="adm-barrier" style="font-size: 1.25rem;">—</div>
+              <div class="kpi-sub" id="adm-barrier-sub">—</div>
+            </div>
+            <div class="kpi">
+              <div class="kpi-top">
+                <span class="kpi-label">Ready for advocacy</span>
+                <span class="kpi-ico">👥</span>
+              </div>
+              <div class="kpi-value" id="adm-advocacy">—</div>
+              <div class="kpi-sub">marked for briefs</div>
+            </div>
+          </section>
+
+          <div class="dash-cols">
+            <div class="stack">
+              <section class="panel">
+                <div class="panel-head">
+                  <h3>Recent stories</h3>
+                  <a href="#" class="link-sm">View all</a>
+                </div>
+                <div class="story-list" id="admin-stories"></div>
+              </section>
+
+              <section class="panel">
+                <div class="panel-head">
+                  <h3>Stories over time</h3>
+                  <div class="toggle" id="chart-toggle">
+                    <button type="button" data-mode="weekly" class="is-active">Weekly</button>
+                    <button type="button" data-mode="monthly">Monthly</button>
+                  </div>
+                </div>
+                <div class="panel-body">
+                  <div class="chart" id="chart"></div>
+                </div>
+              </section>
+            </div>
+
+            <div class="stack">
+              <section class="panel">
+                <div class="panel-head">
+                  <h3>Recurring policy themes</h3>
+                  <a href="#" class="link-sm">Full analysis</a>
+                </div>
+                <div class="panel-body">
+                  <div id="theme-list"></div>
+                </div>
+              </section>
+
+              <section class="panel">
+                <div class="panel-head"><h3>Draft an advocacy proposal</h3></div>
+                <div class="panel-body">
+                  <form id="proposal-form" style="display: grid; gap: 12px;">
+                    <label>
+                      Policy idea
+                      <textarea
+                        id="policy-idea"
+                        rows="4"
+                        placeholder="Example: Streamline prior authorization for pediatric maintenance medications."
+                        required
+                      ></textarea>
+                    </label>
+                    <button class="primary" type="submit">Draft proposal</button>
+                    <div class="proposal-output" id="proposal-output">
+                      Your generated proposal will appear here, citing the stored stories as evidence.
+                    </div>
+                  </form>
+                </div>
+              </section>
+            </div>
+          </div>
+        </main>
+
+        <footer class="footer">
+          <span class="lock">🔒 Prototype — do not use with real patient data until security, consent, and compliance reviews are complete.</span>
+          <span id="last-updated"></span>
+        </footer>
+      </div>
+    </div>
+
+    <!-- ---------------- Record modal ---------------- -->
+    <div class="modal is-hidden" id="record-modal">
+      <div class="modal-card">
+        <div class="modal-head">
+          <h3>Record a story</h3>
+          <button class="icon-btn" id="record-close" type="button" aria-label="Close">✕</button>
+        </div>
+        <div class="modal-body">
           <form class="story-form" id="story-form">
             <div class="field-grid">
               <label>
@@ -47,27 +274,27 @@
               </label>
               <label>
                 Specialty
-                <input id="specialty" name="specialty" placeholder="Primary care" />
+                <input id="specialty" name="specialty" placeholder="Pediatrics" />
               </label>
               <label>
                 Encounter date
                 <input id="encounter-date" name="encounterDate" type="date" />
               </label>
               <label>
-                Consent / internal reference
-                <input id="reference-code" name="referenceCode" placeholder="Optional" />
+                Focus area
+                <select id="focus-area"></select>
               </label>
             </div>
 
             <div class="record-panel">
               <div>
-                <p class="section-label">Audio capture</p>
-                <p class="muted">
-                  Press record, tell the story, then stop. The server will transcribe
-                  the audio and save the result in Supabase.
+                <p style="margin: 0; font-weight: 700;">Audio capture</p>
+                <p class="muted" style="margin: 4px 0 0;">
+                  Press record, tell the story, then stop. We transcribe it for you.
                 </p>
               </div>
               <div class="record-actions">
+                <span class="status-pill" id="recording-status">Ready</span>
                 <button class="primary" id="record-btn" type="button">Record</button>
                 <button id="stop-btn" type="button" disabled>Stop</button>
               </div>
@@ -78,89 +305,57 @@
               <textarea
                 id="transcript"
                 name="transcript"
-                rows="10"
-                placeholder="Your transcript will appear here after recording. You can also type or paste text for testing."
+                rows="8"
+                placeholder="Your transcript appears here after recording. You can also type or paste text."
                 required
               ></textarea>
             </label>
 
             <div class="form-footer">
               <p class="muted" id="doctor-message">No story saved yet.</p>
-              <button class="primary" id="save-story-btn" type="submit">Save story</button>
+              <div class="button-row">
+                <button id="save-draft-btn" type="button">Save as draft</button>
+                <button class="primary" id="submit-story-btn" type="submit">Submit story</button>
+              </div>
             </div>
           </form>
-        </section>
+        </div>
+      </div>
+    </div>
 
-        <section class="view" id="admin-view" aria-labelledby="admin-title">
-          <header class="view-header">
+    <!-- ---------------- Story detail modal ---------------- -->
+    <div class="modal is-hidden" id="detail-modal">
+      <div class="modal-card">
+        <div class="modal-head">
+          <h3 id="detail-title">Story</h3>
+          <button class="icon-btn" id="detail-close" type="button" aria-label="Close">✕</button>
+        </div>
+        <div class="modal-body">
+          <div class="detail-body">
+            <div class="detail-topline">
+              <p class="muted" id="detail-meta" style="margin: 0;"></p>
+              <span class="status" id="detail-status" data-status="submitted">Submitted</span>
+            </div>
+
+            <div class="button-row">
+              <button id="summarize-btn" type="button">Summarize</button>
+              <button id="categorize-btn" type="button">Categorize</button>
+              <button id="mark-reviewed-btn" type="button">Mark reviewed</button>
+              <button id="use-advocacy-btn" type="button">Use in advocacy</button>
+            </div>
+
             <div>
-              <p class="eyebrow">Administrator interface</p>
-              <h2 id="admin-title">Review stories and draft policy</h2>
-            </div>
-            <button id="refresh-btn" type="button">Refresh</button>
-          </header>
-
-          <section class="admin-grid" id="admin-content">
-            <div class="story-list-wrap">
-              <div class="section-heading">
-                <div>
-                  <p class="section-label">Transcripts</p>
-                  <p class="muted" id="story-count">0 stories</p>
-                </div>
-                <button id="analyze-all-btn" type="button">Analyze missing</button>
-              </div>
-              <div class="story-list" id="story-list"></div>
+              <h4 style="margin: 0 0 6px;">Summary</h4>
+              <p id="detail-summary" class="body-copy">No summary yet.</p>
             </div>
 
-            <div class="detail-panel">
-              <div id="empty-state" class="empty-state">
-                Select a transcript to review its summary, category, and source text.
-              </div>
-
-              <article class="story-detail is-hidden" id="story-detail">
-                <div class="detail-topline">
-                  <div>
-                    <p class="section-label" id="selected-doctor">Story</p>
-                    <h3 id="selected-title">No story selected</h3>
-                  </div>
-                  <span class="category-tag" id="selected-category">Uncategorized</span>
-                </div>
-
-                <div class="button-row">
-                  <button id="summarize-btn" type="button">Summarize</button>
-                  <button id="categorize-btn" type="button">Categorize</button>
-                </div>
-
-                <section>
-                  <h4>Summary</h4>
-                  <p id="selected-summary" class="body-copy">No summary yet.</p>
-                </section>
-
-                <section>
-                  <h4>Transcript</h4>
-                  <p id="selected-transcript" class="body-copy transcript-copy"></p>
-                </section>
-              </article>
-
-              <form class="proposal-panel" id="proposal-form">
-                <label>
-                  Policy idea
-                  <textarea
-                    id="policy-idea"
-                    rows="5"
-                    placeholder="Example: Improve Medicare reimbursement for home-based follow-up after discharge."
-                    required
-                  ></textarea>
-                </label>
-                <button class="primary" type="submit">Draft proposal</button>
-                <div class="proposal-output" id="proposal-output">
-                  Your AI-generated policy proposal will appear here.
-                </div>
-              </form>
+            <div>
+              <h4 style="margin: 0 0 6px;">Transcript</h4>
+              <p id="detail-transcript" class="body-copy transcript-copy"></p>
             </div>
-          </section>
-        </section>
-      </main>
+          </div>
+        </div>
+      </div>
     </div>
 
     <script type="module" src="./src/main.js"></script>
