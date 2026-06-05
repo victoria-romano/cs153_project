@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>StoryBridge — Stanford Office of Child Health Equity</title>
+    <title>Storybook — Provider stories for child health equity</title>
     <link rel="stylesheet" href="./styles.css" />
   </head>
   <body>
@@ -12,7 +12,10 @@
       <aside class="sidebar">
         <div class="brand">
           <div class="brand-mark">◆</div>
-          <p class="brand-name">StoryBridge</p>
+          <div class="brand-text">
+            <p class="brand-name">Storybook</p>
+            <p class="brand-tagline">Provider stories for child health equity</p>
+          </div>
         </div>
 
         <button class="primary sidebar-cta" id="sidebar-record" type="button">
@@ -24,7 +27,11 @@
           <button type="button" data-role="admin">Policy</button>
         </div>
 
-        <nav class="nav" id="nav" aria-label="Main navigation"></nav>
+        <div class="provider-id-card" id="provider-id-card">
+          <div class="provider-id-label">Signed in as</div>
+          <div class="provider-id-name" id="provider-id-name">Not signed in</div>
+          <button type="button" class="link-btn" id="provider-id-edit">Change</button>
+        </div>
 
         <div class="sidebar-spacer"></div>
 
@@ -41,6 +48,14 @@
 
       <!-- ---------------- Main ---------------- -->
       <div class="main">
+        <div class="phi-banner" role="note" aria-label="Demo data notice">
+          <span class="phi-banner-ico">⚠️</span>
+          <div>
+            <strong>Demo / non-PHI environment.</strong>
+            All stories, provider names, and details shown here are
+            <em>fictional examples</em>. Do not enter real patient information.
+          </div>
+        </div>
         <header class="topbar">
           <div>
             <p class="eyebrow" id="top-eyebrow">Dashboard</p>
@@ -220,31 +235,26 @@
               <section class="panel">
                 <div class="panel-head">
                   <h3>Recurring policy themes</h3>
-                  <a href="#" class="link-sm">Full analysis</a>
+                  <span class="link-sm muted" style="font-weight: 600;">Click a theme to draft brief</span>
                 </div>
                 <div class="panel-body">
+                  <p class="muted" style="margin: 0 0 10px;">
+                    Each theme has a <strong>living policy brief</strong> that re-synthesizes from
+                    every submitted story in that theme. Click any theme to view or update its brief.
+                  </p>
                   <div id="theme-list"></div>
                 </div>
               </section>
 
               <section class="panel">
-                <div class="panel-head"><h3>Draft an advocacy proposal</h3></div>
+                <div class="panel-head">
+                  <h3>Past policy briefs</h3>
+                  <span class="link-sm muted" id="briefs-count" style="font-weight: 600;"></span>
+                </div>
                 <div class="panel-body">
-                  <form id="proposal-form" style="display: grid; gap: 12px;">
-                    <label>
-                      Policy idea
-                      <textarea
-                        id="policy-idea"
-                        rows="4"
-                        placeholder="Example: Streamline prior authorization for pediatric maintenance medications."
-                        required
-                      ></textarea>
-                    </label>
-                    <button class="primary" type="submit">Draft proposal</button>
-                    <div class="proposal-output" id="proposal-output">
-                      Your generated proposal will appear here, citing the stored stories as evidence.
-                    </div>
-                  </form>
+                  <div id="briefs-list">
+                    <p class="muted" style="margin: 0;">No briefs drafted yet. Click a theme above to draft one.</p>
+                  </div>
                 </div>
               </section>
             </div>
@@ -267,10 +277,17 @@
         </div>
         <div class="modal-body">
           <form class="story-form" id="story-form">
-            <div class="field-grid">
+            <label class="anon-toggle">
+              <input type="checkbox" id="anon-toggle" />
+              <span>
+                <strong>Submit this story anonymously.</strong>
+                <span class="muted">No provider name or specialty will be attached. You won't see it in your "My stories" list.</span>
+              </span>
+            </label>
+            <div class="field-grid" id="identified-fields">
               <label>
-                Doctor name
-                <input id="doctor-name" name="doctorName" autocomplete="name" required />
+                Provider name
+                <input id="doctor-name" name="doctorName" autocomplete="name" />
               </label>
               <label>
                 Specialty
@@ -283,6 +300,16 @@
               <label>
                 Focus area
                 <select id="focus-area"></select>
+              </label>
+            </div>
+            <div class="field-grid" id="anon-fields" style="display: none;">
+              <label>
+                Encounter date (optional)
+                <input id="encounter-date-anon" name="encounterDateAnon" type="date" />
+              </label>
+              <label>
+                Focus area
+                <select id="focus-area-anon"></select>
               </label>
             </div>
 
@@ -337,12 +364,16 @@
               <span class="status" id="detail-status" data-status="submitted">Submitted</span>
             </div>
 
-            <div class="button-row">
+            <div class="button-row" id="oche-actions">
+              <span class="oche-label">Actions:</span>
               <button id="summarize-btn" type="button">Summarize</button>
               <button id="categorize-btn" type="button">Categorize</button>
               <button id="mark-reviewed-btn" type="button">Mark reviewed</button>
               <button id="use-advocacy-btn" type="button">Use in advocacy</button>
+              <button id="shared-policymakers-btn" type="button">Mark shared with policymakers</button>
             </div>
+
+            <div id="detail-outcome" class="outcome-note is-hidden"></div>
 
             <div>
               <h4 style="margin: 0 0 6px;">Summary</h4>
@@ -353,6 +384,73 @@
               <h4 style="margin: 0 0 6px;">Transcript</h4>
               <p id="detail-transcript" class="body-copy transcript-copy"></p>
             </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ---------------- Prompt-questions modal ---------------- -->
+    <div class="modal is-hidden" id="prompt-modal">
+      <div class="modal-card">
+        <div class="modal-head">
+          <h3 id="prompt-modal-title">Story prompts</h3>
+          <button class="icon-btn" id="prompt-modal-close" type="button" aria-label="Close">✕</button>
+        </div>
+        <div class="modal-body">
+          <p class="muted" id="prompt-modal-intro" style="margin: 0 0 12px;"></p>
+          <ul id="prompt-questions" class="prompt-questions"></ul>
+          <div class="button-row" style="margin-top: 18px;">
+            <button id="prompt-record-btn" class="primary" type="button">
+              🎙 Record a story on this theme
+            </button>
+            <button id="prompt-cancel-btn" type="button">Close</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ---------------- Policy brief modal ---------------- -->
+    <div class="modal is-hidden" id="brief-modal">
+      <div class="modal-card">
+        <div class="modal-head">
+          <h3 id="brief-modal-title">Living policy brief</h3>
+          <button class="icon-btn" id="brief-modal-close" type="button" aria-label="Close">✕</button>
+        </div>
+        <div class="modal-body">
+          <p class="muted" id="brief-modal-meta" style="margin: 0 0 12px;"></p>
+          <div class="button-row" style="margin-bottom: 12px;">
+            <button id="brief-regen-btn" class="primary" type="button">Regenerate from latest stories</button>
+          </div>
+          <div class="proposal-output" id="brief-output">
+            No brief drafted for this theme yet. Click "Regenerate" to synthesize one from submitted stories.
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ---------------- Provider identity modal ---------------- -->
+    <div class="modal is-hidden" id="identity-modal">
+      <div class="modal-card" style="max-width: 480px;">
+        <div class="modal-head">
+          <h3>Sign in as a provider</h3>
+          <button class="icon-btn" id="identity-close" type="button" aria-label="Close">✕</button>
+        </div>
+        <div class="modal-body">
+          <p class="muted" style="margin: 0 0 12px;">
+            Enter the name you want to be associated with your submitted stories.
+            Your <strong>My stories</strong> view will filter to this name.
+            <br /><br />
+            <em>Prototype only:</em> this is not real authentication — anyone could enter any name.
+            Real role separation (clinician sees only own; OCHE sees all) requires a login system
+            we have not built yet.
+          </p>
+          <label>
+            Provider name
+            <input id="identity-input" placeholder="e.g. Provider A" />
+          </label>
+          <div class="button-row" style="margin-top: 14px;">
+            <button class="primary" id="identity-save" type="button">Save</button>
+            <button id="identity-clear" type="button">Sign out (browse anonymously)</button>
           </div>
         </div>
       </div>

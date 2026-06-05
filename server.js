@@ -15,17 +15,57 @@ const OPENAI_TRANSCRIPTION_MODEL = process.env.OPENAI_TRANSCRIPTION_MODEL || "gp
 const OPENAI_TEXT_MODEL = process.env.OPENAI_TEXT_MODEL || "gpt-4.1-mini";
 
 const POLICY_CATEGORIES = parseList(process.env.POLICY_CATEGORIES, [
-  "Medicaid Access",
-  "Insurance Denials",
-  "Cost of Care",
-  "Transportation",
   "Language Barriers",
-  "Food Insecurity",
-  "Disability Access",
+  "Transportation",
+  "Cost of Care",
+  "Vaccine-Preventable Diseases",
+  "Immigration-Related Concerns",
   "Other",
 ]);
 
-const STORY_STATUSES = ["draft", "submitted", "reviewed", "in_advocacy"];
+const STORY_STATUSES = [
+  "draft",
+  "submitted",
+  "reviewed",
+  "in_advocacy",
+  "shared_with_policymakers",
+];
+
+const POLICY_BRIEF_PROMPT =
+  process.env.POLICY_BRIEF_PROMPT ||
+  [
+    "You are drafting a living policy brief for the Stanford Office of Child Health Equity.",
+    "Synthesize ALL of the supplied de-identified clinician stories on a single theme into one coherent brief.",
+    "Your job is to make it visible that the brief aggregates evidence across multiple stories — every story supplied must appear at least once in the Evidence Base section, and the strongest 3-5 should also be quoted under Representative Stories.",
+    "",
+    "Follow this template EXACTLY, using these Markdown headings in this order:",
+    "",
+    "# Living Policy Brief: <Theme>",
+    "*Synthesized from <N> clinician stories | Drafted <today's date>*",
+    "",
+    "## Executive Summary",
+    "(2-3 sentences. What is the recurring barrier and why it matters for pediatric care.)",
+    "",
+    "## The Pattern",
+    "(One short paragraph. Describe what is happening across the stories. Reference how many stories support each sub-pattern when relevant.)",
+    "",
+    "## Evidence Base",
+    "(A bulleted list with ONE bullet per supplied story. Format each bullet as: `- [<short-id>] (<Provider>) one-line takeaway from this story.` Include every story in the input, in chronological order, newest first.)",
+    "",
+    "## Representative Stories",
+    "(3-5 bullets quoting or paraphrasing the most illustrative stories in more depth. Cite by short story ID in brackets, e.g. [abcd1234]. These should be drawn from the same set listed in Evidence Base.)",
+    "",
+    "## Downstream Impact on Pediatric Care",
+    "(One short paragraph on clinical, developmental, and system-level effects.)",
+    "",
+    "## Policy Recommendations",
+    "(3 numbered, concrete, actionable recommendations. Each should be grounded in patterns visible in the supplied stories.)",
+    "",
+    "## Methodology Note",
+    "Synthesized from de-identified clinician stories submitted via Storybook. Story IDs are pseudonymous identifiers that trace back to the original transcript in the secure OCHE workspace. Names in stories are illustrative.",
+    "",
+    "Hard rules: do not invent facts beyond what the stories support; do not include real patient identifiers; keep the whole brief under ~700 words.",
+  ].join("\n");
 
 const SUMMARY_PROMPT =
   process.env.SUMMARY_PROMPT ||
@@ -34,10 +74,6 @@ const SUMMARY_PROMPT =
 const CATEGORY_PROMPT =
   process.env.CATEGORY_PROMPT ||
   "Choose the one category that best fits this story. Return only the category name.";
-
-const POLICY_PROMPT =
-  process.env.POLICY_PROMPT ||
-  "Write a formal policy proposal. Use only the supplied transcript evidence, cite supporting story IDs inline, and include a short evidence section.";
 
 const HOST = process.env.HOST || "127.0.0.1";
 
@@ -60,7 +96,7 @@ createServer(async (req, res) => {
     sendJson(res, statusForError(error), { error: error.message || "Unexpected server error." });
   }
 }).listen(PORT, HOST, () => {
-  console.log(`StoryBridge running at http://${HOST}:${PORT}`);
+  console.log(`Storybook running at http://${HOST}:${PORT}`);
 });
 
 async function handleApi(req, res) {
@@ -119,14 +155,37 @@ async function handleApi(req, res) {
       throw httpError(400, `Status must be one of: ${STORY_STATUSES.join(", ")}.`);
     }
     const story = await updateStory(statusMatch[1], { status: body.status });
-    sendJson(res, 200, { story });
+
+    // Advocacy actions auto-regenerate the living brief for the story's theme,
+    // so a brief gets created/refreshed the moment a story is escalated.
+    let brief = null;
+    if (
+      (body.status === "in_advocacy" || body.status === "shared_with_policymakers") &&
+      story.category &&
+      POLICY_CATEGORIES.includes(story.category)
+    ) {
+      try {
+        brief = await regeneratePolicyBrief(story.category);
+      } catch (error) {
+        console.warn("Auto-brief regeneration failed:", error.message);
+      }
+    }
+
+    sendJson(res, 200, { story, brief });
     return;
   }
 
-  if (req.method === "POST" && path === "/api/policy-proposal") {
-    const body = await readJson(req);
-    const proposal = await draftPolicyProposal(body.policyIdea);
-    sendJson(res, 200, { proposal });
+  if (req.method === "GET" && path === "/api/policy-briefs") {
+    const briefs = await listPolicyBriefs();
+    sendJson(res, 200, { briefs });
+    return;
+  }
+
+  const briefMatch = path.match(/^\/api\/policy-briefs\/([^/]+)$/);
+  if (req.method === "POST" && briefMatch) {
+    const theme = decodeURIComponent(briefMatch[1]);
+    const brief = await regeneratePolicyBrief(theme);
+    sendJson(res, 200, { brief });
     return;
   }
 
@@ -160,13 +219,19 @@ async function listStories() {
 }
 
 async function createStory(body) {
-  if (!body.doctorName || !body.transcript) {
-    throw httpError(400, "Doctor name and transcript are required.");
+  if (!body.transcript) {
+    throw httpError(400, "Transcript is required.");
+  }
+
+  const isAnonymous = Boolean(body.anonymous);
+  const doctorName = isAnonymous ? "Anonymous clinician" : (body.doctorName || "").trim();
+  if (!isAnonymous && !doctorName) {
+    throw httpError(400, "Provider name is required (or check 'Submit anonymously').");
   }
 
   const record = {
-    doctor_name: body.doctorName,
-    specialty: body.specialty || null,
+    doctor_name: doctorName,
+    specialty: isAnonymous ? null : (body.specialty || null),
     encounter_date: body.encounterDate || null,
     reference_code: body.referenceCode || null,
     transcript: body.transcript,
@@ -174,6 +239,23 @@ async function createStory(body) {
     category: body.category || null,
     status: STORY_STATUSES.includes(body.status) ? body.status : "submitted",
   };
+
+  // If no focus area was chosen and we have OpenAI, auto-categorize before
+  // saving so every story lands with one of the six predefined labels.
+  if (!record.category && record.status !== "draft" && hasOpenAiConfig()) {
+    try {
+      const guess = await openAiText([
+        {
+          role: "system",
+          content: `${CATEGORY_PROMPT}\n\nAllowed categories:\n${POLICY_CATEGORIES.join("\n")}`,
+        },
+        { role: "user", content: record.transcript },
+      ]);
+      record.category = normalizeCategory(guess);
+    } catch (error) {
+      console.warn("Auto-categorize on submit failed:", error.message);
+    }
+  }
 
   if (DEMO_MODE) {
     const story = {
@@ -265,36 +347,149 @@ async function categorizeStory(id) {
   return updateStory(id, { category: normalizeCategory(category) });
 }
 
-async function draftPolicyProposal(policyIdea) {
-  if (!policyIdea) {
-    throw httpError(400, "Policy idea is required.");
+// --- Policy briefs (one living brief per theme) ---
+
+const demoBriefStore = DEMO_MODE ? new Map() : null;
+
+async function listPolicyBriefs() {
+  if (DEMO_MODE) {
+    return [...demoBriefStore.values()].sort(
+      (a, b) => new Date(b.updated_at) - new Date(a.updated_at),
+    );
+  }
+  return supabaseFetch("/rest/v1/policy_briefs?select=*&order=updated_at.desc");
+}
+
+async function regeneratePolicyBrief(theme) {
+  if (!POLICY_CATEGORIES.includes(theme)) {
+    throw httpError(400, `Unknown theme: ${theme}`);
   }
 
-  const stories = await listStories();
-  const evidence = stories
-    .map((story) => {
-      const summary = story.summary || "No summary yet.";
-      return [
+  const stories = (await listStories()).filter(
+    (s) => (s.category || "Other") === theme && isSubmittedStatus(s.status),
+  );
+
+  if (!stories.length) {
+    throw httpError(400, `No submitted stories yet under "${theme}". Submit a story first.`);
+  }
+
+  const briefText = hasOpenAiConfig()
+    ? await openAiBriefText(theme, stories)
+    : localBrief(theme, stories);
+
+  const record = {
+    theme,
+    brief: briefText,
+    story_count: stories.length,
+    updated_at: new Date().toISOString(),
+  };
+
+  if (DEMO_MODE) {
+    demoBriefStore.set(theme, record);
+    return record;
+  }
+
+  const rows = await supabaseFetch(
+    `/rest/v1/policy_briefs?on_conflict=theme`,
+    {
+      method: "POST",
+      headers: { Prefer: "resolution=merge-duplicates,return=representation" },
+      body: JSON.stringify(record),
+    },
+  );
+  return rows[0];
+}
+
+function isSubmittedStatus(status) {
+  return status && status !== "draft";
+}
+
+async function openAiBriefText(theme, stories) {
+  const ordered = [...stories].sort(
+    (a, b) => new Date(b.created_at) - new Date(a.created_at),
+  );
+  const today = new Date().toISOString().slice(0, 10);
+
+  const evidence = ordered
+    .map((story) =>
+      [
         `Story ID: ${story.id}`,
-        `Doctor: ${story.doctor_name || "Unknown"}`,
-        `Category: ${story.category || "Uncategorized"}`,
-        `Summary: ${summary}`,
+        `Short ID: ${String(story.id).slice(0, 8)}`,
+        `Provider: ${story.doctor_name || "Anonymous"}`,
+        `Submitted: ${(story.created_at || "").slice(0, 10)}`,
+        `Status: ${story.status || "submitted"}`,
+        `Category: ${theme}`,
+        `Summary: ${story.summary || "—"}`,
         `Transcript: ${story.transcript}`,
-      ].join("\n");
-    })
+      ].join("\n"),
+    )
     .join("\n\n---\n\n");
 
-  if (!hasOpenAiConfig()) {
-    return localProposal(policyIdea, stories);
-  }
-
   return openAiText([
-    { role: "system", content: POLICY_PROMPT },
+    { role: "system", content: POLICY_BRIEF_PROMPT },
     {
       role: "user",
-      content: `Policy idea:\n${policyIdea}\n\nAvailable transcript evidence:\n${evidence}`,
+      content: [
+        `Theme: ${theme}`,
+        `Today: ${today}`,
+        `Stories under this theme: ${ordered.length}`,
+        ``,
+        `Use the "Short ID" value (8 characters) in your bracketed citations.`,
+        `Every story below must appear once in Evidence Base.`,
+        ``,
+        evidence,
+      ].join("\n"),
     },
   ]);
+}
+
+function localBrief(theme, stories) {
+  const today = new Date().toISOString().slice(0, 10);
+  const shortId = (id) => String(id).slice(0, 8);
+  const ordered = [...stories].sort(
+    (a, b) => new Date(b.created_at) - new Date(a.created_at),
+  );
+
+  const evidenceBase = ordered.map((s) => {
+    const provider = s.doctor_name || "Anonymous";
+    const takeaway = (s.summary || s.transcript || "").replace(/\s+/g, " ").slice(0, 140).trim();
+    return `- [${shortId(s.id)}] (${provider}) ${takeaway}`;
+  });
+
+  const representative = ordered.slice(0, 4).map((s) => {
+    const quote = (s.summary || s.transcript || "").replace(/\s+/g, " ").slice(0, 220).trim();
+    return `- [${shortId(s.id)}] ${quote}`;
+  });
+
+  return [
+    `# Living Policy Brief: ${theme}`,
+    `*Synthesized from ${ordered.length} clinician ${ordered.length === 1 ? "story" : "stories"} | Drafted ${today}*`,
+    ``,
+    `> Demo draft — add OPENAI_API_KEY for an AI-synthesized brief.`,
+    ``,
+    `## Executive Summary`,
+    `Clinicians repeatedly report that "${theme.toLowerCase()}" is creating delays, missed care, and avoidable downstream costs for pediatric patients. The pattern is consistent across ${ordered.length} ${ordered.length === 1 ? "submission" : "submissions"} and warrants a coordinated policy response.`,
+    ``,
+    `## The Pattern`,
+    `Across the ${ordered.length} submitted ${ordered.length === 1 ? "story" : "stories"}, providers describe the same barrier surfacing in different visit contexts and family situations — suggesting a systemic gap rather than isolated incidents.`,
+    ``,
+    `## Evidence Base`,
+    ...evidenceBase,
+    ``,
+    `## Representative Stories`,
+    ...representative,
+    ``,
+    `## Downstream Impact on Pediatric Care`,
+    `Affected children experience delayed diagnoses, interrupted treatment, and increased acute-care utilization. Families face cumulative time, financial, and emotional costs that compound over the course of childhood.`,
+    ``,
+    `## Policy Recommendations`,
+    `1. Targeted reimbursement or coverage changes addressing the specific bottleneck identified in these stories.`,
+    `2. Workflow and access investments at the clinic level (interpreter access, transportation vouchers, schedule flexibility).`,
+    `3. Cross-agency data sharing to proactively surface families at risk of falling through the gaps.`,
+    ``,
+    `## Methodology Note`,
+    `Synthesized from de-identified clinician stories submitted via Storybook. Story IDs are pseudonymous identifiers that trace back to the original transcript in the secure OCHE workspace. Names in stories are illustrative.`,
+  ].join("\n");
 }
 
 async function transcribeAudio(audio) {
@@ -475,13 +670,38 @@ function localSummary(transcript) {
 }
 
 const CATEGORY_KEYWORDS = {
-  "Medicaid Access": ["medicaid", "coverage", "renewal", "enroll", "plan dropped", "lost coverage"],
-  "Insurance Denials": ["denied", "denial", "prior auth", "authorization", "claim", "appeal"],
-  "Cost of Care": ["afford", "cost", "copay", "expensive", "out-of-pocket", "ration", "insulin"],
+  "Language Barriers": ["interpreter", "language", "translate", "english", "consent form", "spanish"],
   Transportation: ["bus", "transport", "ride", "car seat", "travel", "drive", "too far", "stroller"],
-  "Language Barriers": ["interpreter", "language", "translate", "english", "consent form"],
-  "Food Insecurity": ["food", "groceries", "formula", "wic", "pantry", "hunger", "meal"],
-  "Disability Access": ["wheelchair", "ramp", "accessible", "accommodation", "disability", "exam table"],
+  "Cost of Care": ["afford", "cost", "copay", "expensive", "out-of-pocket", "ration", "insulin", "deductible"],
+  "Vaccine-Preventable Diseases": [
+    "vaccine",
+    "vaccination",
+    "immuniz",
+    "measles",
+    "mmr",
+    "pertussis",
+    "whooping cough",
+    "flu shot",
+    "hpv",
+    "polio",
+    "outbreak",
+    "anti-vax",
+    "refused vaccine",
+  ],
+  "Immigration-Related Concerns": [
+    "immigration",
+    "immigrant",
+    "undocumented",
+    "ice",
+    "deportation",
+    "visa",
+    "asylum",
+    "refugee",
+    "afraid to come",
+    "afraid to seek",
+    "public charge",
+    "green card",
+  ],
 };
 
 function localCategory(transcript) {
@@ -498,59 +718,34 @@ function localCategory(transcript) {
   return best;
 }
 
-function localProposal(policyIdea, stories) {
-  const counts = {};
-  for (const story of stories) {
-    const key = story.category || "Uncategorized";
-    counts[key] = (counts[key] || 0) + 1;
-  }
-  const ranked = Object.entries(counts).sort((a, b) => b[1] - a[1]);
-  const topThemes = ranked.slice(0, 3).map(([name, n]) => `${name} (${n})`).join(", ");
-  const cited = stories.slice(0, 5).map((s) => `- [${s.id}] ${s.title || deriveTitle(s.transcript)}`);
-
-  return [
-    `POLICY PROPOSAL (demo draft — add OPENAI_API_KEY for an AI-written version)`,
-    ``,
-    `Proposal: ${policyIdea}`,
-    ``,
-    `Background:`,
-    `Across ${stories.length} collected patient stories, the most frequently reported barriers are ${topThemes || "not yet categorized"}. These first-hand accounts point to a recurring gap that this proposal seeks to address.`,
-    ``,
-    `Recommendation:`,
-    `Adopt the policy idea above, prioritizing the highest-volume barriers and tracking outcomes against the themes that patients report most often.`,
-    ``,
-    `Supporting evidence (story IDs):`,
-    ...cited,
-  ].join("\n");
-}
-
 // --- Demo dataset (used only when Supabase is unconfigured) ---
 
 function buildDemoStories() {
-  // [daysAgo, doctor, specialty, category, status, title, quote]
+  // All names below are FICTIONAL. No real patients or providers are referenced.
+  // [daysAgo, provider, specialty, category, status, title, quote]
   const rows = [
-    [1, "Dr. Aisha Patel", "Family Medicine", "Insurance Denials", "in_advocacy", "Child denied asthma inhaler over prior auth", "The pharmacy said the inhaler needed prior authorization again, so my son went four days without it and ended up in urgent care."],
-    [2, "Dr. Aisha Patel", "Family Medicine", "Cost of Care", "reviewed", "Family rationing insulin for diabetic teen", "We couldn't afford the full insulin dose so we stretched it out. I was terrified every single day."],
-    [3, "Dr. Marcus Lee", "Pediatrics", "Transportation", "submitted", "Missed appointments after bus route changed", "The bus stop moved and I can't walk that far with the stroller, so we missed the follow-up visits."],
-    [4, "Dr. Marcus Lee", "Pediatrics", "Language Barriers", "draft", "No interpreter for discharge instructions", "I had my daughter translate the discharge papers because no interpreter was available. I didn't fully understand the medication schedule."],
-    [5, "Dr. Sara Kim", "Pediatrics", "Medicaid Access", "submitted", "Coverage lapsed during Medicaid renewal", "Our Medicaid renewal got stuck in paperwork and my kids lost coverage for two months."],
-    [6, "Dr. Sara Kim", "Pediatrics", "Food Insecurity", "reviewed", "Choosing between groceries and medication", "Every month I have to choose between buying healthy food for my family and paying for my child's prescriptions."],
-    [7, "Dr. Aisha Patel", "Family Medicine", "Disability Access", "submitted", "No wheelchair access at the clinic entrance", "There was no ramp at the side entrance and we had to wait outside in the cold for help."],
-    [8, "Dr. Omar Haddad", "Pediatrics", "Medicaid Access", "in_advocacy", "Specialist won't accept our Medicaid plan", "Three specialists turned us away because they don't take our Medicaid plan. The wait for one that does is months."],
-    [10, "Dr. Omar Haddad", "Pediatrics", "Insurance Denials", "reviewed", "Denied again, no explanation given", "This is the third time the claim was denied. The letters are confusing and there's no one to call for help."],
-    [11, "Dr. Sara Kim", "Pediatrics", "Language Barriers", "submitted", "Parent couldn't understand vaccine consent form", "The consent form was only in English and the family wasn't sure what they were agreeing to."],
-    [13, "Dr. Marcus Lee", "Pediatrics", "Transportation", "submitted", "Two-hour trip each way for pediatric specialist", "We take three buses to reach the only pediatric specialist that takes our insurance."],
-    [15, "Dr. Aisha Patel", "Family Medicine", "Cost of Care", "reviewed", "Skipped follow-up labs due to cost", "We skipped the recommended lab work because the out-of-pocket cost was too high."],
-    [17, "Dr. Omar Haddad", "Pediatrics", "Medicaid Access", "submitted", "Lost dental coverage mid-treatment", "Our plan dropped pediatric dental and we had to stop my son's treatment halfway through."],
-    [19, "Dr. Sara Kim", "Pediatrics", "Food Insecurity", "submitted", "WIC didn't cover the only formula baby tolerates", "The only formula my baby tolerates wasn't covered, so we diluted feeds to make it last."],
-    [21, "Dr. Marcus Lee", "Pediatrics", "Other", "submitted", "Long ER waits for routine pediatric care", "Without a regular doctor we use the ER for everything and wait many hours each time."],
-    [23, "Dr. Aisha Patel", "Family Medicine", "Language Barriers", "reviewed", "Telehealth visit failed without interpreter line", "The video visit had no interpreter option, so the appointment was cut short."],
-    [26, "Dr. Omar Haddad", "Pediatrics", "Transportation", "submitted", "No car seat, couldn't take discharge ride", "We couldn't take the hospital ride home because we didn't have a car seat that fit."],
-    [28, "Dr. Sara Kim", "Pediatrics", "Insurance Denials", "submitted", "Prior auth delayed seizure medication", "The prior authorization for my daughter's seizure medication took two weeks while she waited."],
-    [31, "Dr. Marcus Lee", "Pediatrics", "Medicaid Access", "submitted", "Newborn not added to Medicaid for weeks", "It took almost a month to get our newborn added to Medicaid, so we delayed the first check-ups."],
-    [34, "Dr. Aisha Patel", "Family Medicine", "Cost of Care", "submitted", "High copay kept us from the asthma specialist", "The specialist copay was too high so we kept managing the asthma at home."],
-    [37, "Dr. Omar Haddad", "Pediatrics", "Disability Access", "submitted", "No accessible exam table for child with CP", "The clinic had no height-adjustable table, making the exam difficult and unsafe."],
-    [40, "Dr. Sara Kim", "Pediatrics", "Food Insecurity", "submitted", "Food pantry hours conflict with clinic visits", "The only food pantry is open the same hours as our clinic, so we miss one or the other."],
+    [1, "Provider A", "Pediatrics", "Vaccine-Preventable Diseases", "in_advocacy", "Toddler hospitalized for pertussis after missed vaccines", "The family missed several well-child visits and the toddler ended up admitted with whooping cough. The parents told me they wanted the vaccines but couldn't get the time off work to come in."],
+    [2, "Provider A", "Pediatrics", "Cost of Care", "reviewed", "Family rationing inhaler refills", "The family couldn't afford the monthly refills so they stretched the inhaler out. The child ended up in urgent care twice in three months."],
+    [3, "Provider B", "Family Medicine", "Transportation", "submitted", "Missed appointments after the bus route changed", "The bus stop moved and the caregiver couldn't walk that far with the stroller, so they missed the follow-up visits."],
+    [4, "Provider B", "Family Medicine", "Language Barriers", "draft", "No interpreter for discharge instructions", "The caregiver had her teenage daughter translate the discharge papers because no interpreter was available. She didn't fully understand the medication schedule."],
+    [5, "Provider C", "Pediatrics", "Immigration-Related Concerns", "submitted", "Family afraid to come in after ICE activity in the neighborhood", "The family canceled three visits in a row after immigration enforcement was reported nearby. The child went without asthma follow-up for two months."],
+    [6, "Provider C", "Pediatrics", "Cost of Care", "reviewed", "Choosing between groceries and medication", "The caregiver told me they have to choose every month between buying healthy food for the family and paying for their child's prescriptions."],
+    [7, "Provider A", "Pediatrics", "Vaccine-Preventable Diseases", "submitted", "Measles exposure at school, child unvaccinated due to misinformation", "Parents had delayed the MMR after reading misinformation online. When measles circulated at the school, the child had to be excluded for three weeks."],
+    [8, "Provider D", "Pediatrics", "Immigration-Related Concerns", "in_advocacy", "Caregiver declined Medicaid enrollment, citing public charge fears", "The family qualifies for coverage but declined to enroll out of fear it would affect their immigration case, even after I explained current rules."],
+    [10, "Provider D", "Pediatrics", "Language Barriers", "reviewed", "Telehealth visit failed without an interpreter line", "The video visit had no interpreter option, so the appointment was cut short and we had to reschedule in person."],
+    [11, "Provider C", "Pediatrics", "Language Barriers", "submitted", "Caregiver couldn't understand vaccine consent form", "The consent form was only in English and the family wasn't sure what they were agreeing to. They eventually declined the vaccine."],
+    [13, "Provider B", "Family Medicine", "Transportation", "submitted", "Two-hour trip each way for pediatric specialist", "The family takes three buses to reach the only pediatric specialist that takes their insurance."],
+    [15, "Provider A", "Pediatrics", "Cost of Care", "reviewed", "Skipped follow-up labs due to cost", "The family skipped the recommended lab work because the out-of-pocket cost was too high."],
+    [17, "Provider D", "Pediatrics", "Vaccine-Preventable Diseases", "submitted", "Vaccine refused after community-wide misinformation campaign", "Several families in the same neighborhood refused HPV vaccination after a flyer circulated with false claims. We're seeing a cluster of declines."],
+    [19, "Provider C", "Pediatrics", "Immigration-Related Concerns", "submitted", "Mixed-status family avoiding the ER for child's seizure", "The caregiver waited at home through a febrile seizure because she was afraid going to the ER would trigger questions about her status."],
+    [21, "Provider B", "Family Medicine", "Other", "submitted", "Long ER waits for routine pediatric care", "Without a regular doctor the family uses the ER for everything and waits many hours each time."],
+    [23, "Provider A", "Pediatrics", "Language Barriers", "reviewed", "Phone interpreter line was busy during the entire visit", "I tried the interpreter line three times and couldn't get through, so I muddled through the visit using a translation app."],
+    [26, "Provider D", "Pediatrics", "Transportation", "submitted", "No car seat, couldn't take discharge ride", "The family couldn't take the hospital ride home because they didn't have a car seat that fit."],
+    [28, "Provider C", "Pediatrics", "Cost of Care", "submitted", "Specialist copay delayed neurology evaluation", "The specialist copay was too high so the family kept rescheduling. The seizure workup was delayed for months."],
+    [31, "Provider B", "Family Medicine", "Vaccine-Preventable Diseases", "submitted", "Flu outbreak at daycare among under-vaccinated kids", "Most of the daycare's flu cases this season were in kids whose families said they meant to vaccinate but never made it to the appointment."],
+    [34, "Provider A", "Pediatrics", "Immigration-Related Concerns", "submitted", "Parent skipped own care to avoid documenting the family", "The mother stopped going to her own appointments because she was worried it would create a paper trail that affected her kids' immigration case."],
+    [37, "Provider D", "Pediatrics", "Other", "submitted", "Housing instability disrupting continuity of care", "The family has moved three times this year and we keep losing track of immunizations and follow-up needs."],
+    [40, "Provider C", "Pediatrics", "Transportation", "submitted", "Ride share canceled, family missed asthma follow-up", "The ride share didn't show and the family had no backup, so they missed an asthma follow-up during peak allergy season."],
   ];
 
   const dayMs = 24 * 60 * 60 * 1000;
