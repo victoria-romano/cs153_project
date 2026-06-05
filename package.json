@@ -1,5 +1,7 @@
 {
-  "name": "carestory-ai-prototype",
+  "name": "storybook",
+  "version": "0.1.0",
+  "description": "Storybook — provider stories for child health equity. Prototype for the Stanford Office of Child Health Equity.",
   "private": true,
   "type": "module",
   "scripts": {
