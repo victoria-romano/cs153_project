@@ -240,6 +240,23 @@ async function createStory(body) {
     status: STORY_STATUSES.includes(body.status) ? body.status : "submitted",
   };
 
+  // If no focus area was chosen and we have OpenAI, auto-categorize before
+  // saving so every story lands with one of the six predefined labels.
+  if (!record.category && record.status !== "draft" && hasOpenAiConfig()) {
+    try {
+      const guess = await openAiText([
+        {
+          role: "system",
+          content: `${CATEGORY_PROMPT}\n\nAllowed categories:\n${POLICY_CATEGORIES.join("\n")}`,
+        },
+        { role: "user", content: record.transcript },
+      ]);
+      record.category = normalizeCategory(guess);
+    } catch (error) {
+      console.warn("Auto-categorize on submit failed:", error.message);
+    }
+  }
+
   if (DEMO_MODE) {
     const story = {
       id: `demo-${Date.now()}`,
